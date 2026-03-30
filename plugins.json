@@ -1,0 +1,7 @@
+[
+  {
+    "giturl": "https://github.com/valentineus/moodle-webhooks.git",
+    "branch": "master",
+    "installpath": "local/webhooks"
+  }
+]

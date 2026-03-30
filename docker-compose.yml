@@ -1,0 +1,110 @@
+services:
+  moodle-alt-db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: moodle
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: moodle
+    volumes:
+      - db_data:/var/lib/postgresql/18/docker
+    command: ["postgres", "-c", "shared_buffers=4GB", "-c", "effective_cache_size=12GB", "-c", "work_mem=32MB", "-c", "maintenance_work_mem=512MB", "-c", "checkpoint_completion_target=0.9", "-c", "wal_buffers=16MB", "-c", "default_statistics_target=100", "-c", "random_page_cost=1.1", "-c", "effective_io_concurrency=200", "-c", "min_wal_size=1GB", "-c", "max_wal_size=4GB"]
+
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    environment:
+      # Isso já deixa o campo 'Servidor' preenchido com o nome do serviço do banco
+      ADMINER_DEFAULT_SERVER: moodle-alt-db
+    depends_on:
+      - moodle-alt-db
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MOODLE_LANG: pt_br
+        MOODLE_ADMIN_USER: admin
+        MOODLE_ADMIN_PASS: MoodleAdmin123!
+        MOODLE_ADMIN_EMAIL: admin@example.com
+    ports:
+      - "80:80"
+    depends_on:
+      - moodle-alt-db
+    environment:
+      MOODLE_URL: http://localhost
+      DB_HOST: moodle-alt-db
+      DB_TYPE: pgsql
+      DB_NAME: moodle
+      DB_USER: moodle
+      DB_USER_CRON: moodle
+      DB_PASS_CRON: password
+      DB_PASS: password
+      MOODLE_VERSION: MOODLE_501_STABLE
+      # Cache dirs are now internal to container /tmp
+      PHP_MEMORY_LIMIT: 512M
+      PHP_MAX_EXECUTION_TIME: 600
+      SERVER_MEMORY_USAGE_PERCENT: 20
+      # MOODLE_PLUGINS_JSON is now baked at build time, but we keep this as reference
+      MOODLE_PLUGINS_JSON: |
+        [
+          {
+            "giturl": "https://github.com/valentineus/moodle-webhooks.git",
+            "branch": "master",
+            "installpath": "local/webhooks"
+          }
+        ]
+      MOODLE_EXTRA_PHP: |
+        $$CFG->debug = 32767;
+        $$CFG->debugdisplay = 1;
+        $$CFG->session_handler_class = '\\core\\session\\database';
+    volumes:
+      - moodle_data:/var/www/moodledata
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+  meta:
+    # container_name: supabase-meta-moodle
+    image: supabase/postgres-meta:v0.95.2
+    restart: unless-stopped
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: moodle-alt-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: moodle
+      PG_META_DB_USER: moodle
+      PG_META_DB_PASSWORD: password
+      CRYPTO_KEY: "68725cf26d9c9b91c9f289df68b2cba1"
+
+  studio:
+    # container_name: supabase-studio-moodle
+    image: supabase/studio:2026.03.16-sha-5528817
+    restart: unless-stopped
+    ports:
+      - "8000:3000"
+    depends_on:
+      - meta
+    environment:
+      HOSTNAME: "::"
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PORT: 5432
+      POSTGRES_HOST: moodle-alt-db
+      POSTGRES_DB: moodle
+      POSTGRES_USER: moodle
+      POSTGRES_PASSWORD: password
+      PG_META_CRYPTO_KEY: "68725cf26d9c9b91c9f289df68b2cba1"
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      DEFAULT_ORGANIZATION_NAME: "Moodle"
+      DEFAULT_PROJECT_NAME: "Moodle DB"
+      NEXT_PUBLIC_ENABLE_LOGS: "false"
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+
+networks:
+  default:
+    external: true
+    name: esmos-network
+volumes:
+  db_data:
+  moodle_data:

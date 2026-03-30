@@ -1,0 +1,65 @@
+name: Deploy Moodle-Alt (Optimized) to ACA
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  KEY_VAULT_NAME: esmos-kv-td0bd
+  MOODLE_IMAGE_NAME: moodle-alt
+  MOODLE_IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Fetch Secrets from Key Vault
+        run: |
+          echo "TF_VAR_core_resource_group=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n core-resource-group --query value -o tsv)" >> $GITHUB_ENV
+          echo "TF_VAR_core_env_name=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n core-env-name --query value -o tsv)" >> $GITHUB_ENV
+          echo "TF_VAR_core_acr_name=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n core-acr-name --query value -o tsv)" >> $GITHUB_ENV
+          echo "TF_VAR_core_postgres_name=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n core-postgres-name --query value -o tsv)" >> $GITHUB_ENV
+          echo "TF_VAR_db_user=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n moodle-db-user --query value -o tsv)" >> $GITHUB_ENV
+          echo "TF_STATE_ACCOUNT=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n tf-state-storage-account --query value -o tsv)" >> $GITHUB_ENV
+          
+          DB_PASS=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n moodle-db-password --query value -o tsv)
+          echo "::add-mask::$DB_PASS"
+          echo "TF_VAR_db_password=$DB_PASS" >> $GITHUB_ENV
+          echo "TF_VAR_aca_default_domain=$(az keyvault secret show --vault-name $KEY_VAULT_NAME -n aca-default-domain --query value -o tsv)" >> $GITHUB_ENV
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.TF_VAR_core_acr_name }}
+
+      - name: Build and Push Optimized Image
+        run: |
+          docker build -t ${{ env.TF_VAR_core_acr_name }}.azurecr.io/${{ env.MOODLE_IMAGE_NAME }}:${{ env.MOODLE_IMAGE_TAG }} .
+          docker push ${{ env.TF_VAR_core_acr_name }}.azurecr.io/${{ env.MOODLE_IMAGE_NAME }}:${{ env.MOODLE_IMAGE_TAG }}
+          echo "TF_VAR_image_tag=${{ env.MOODLE_IMAGE_TAG }}" >> $GITHUB_ENV
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        working-directory: ./terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ env.TF_VAR_core_resource_group }}" \
+            -backend-config="storage_account_name=${{ env.TF_STATE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=moodle-alt.tfstate"
+          terraform apply -auto-approve
