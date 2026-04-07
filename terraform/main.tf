@@ -37,8 +37,8 @@ data "azurerm_user_assigned_identity" "aca_identity" {
   resource_group_name = data.azurerm_resource_group.core.name
 }
 
-resource "azurerm_container_app" "moodle_alt" {
-  name                         = "moodle-app-alt"
+resource "azurerm_container_app" "moodle_app" {
+  name                         = "moodle-app"
   container_app_environment_id = data.azurerm_container_app_environment.env.id
   resource_group_name          = data.azurerm_resource_group.core.name
   revision_mode                = "Single"
@@ -64,10 +64,10 @@ resource "azurerm_container_app" "moodle_alt" {
 
   template {
     container {
-      name   = "moodle-alt"
-      image  = "${data.azurerm_container_registry.acr.login_server}/moodle-alt:${var.image_tag}"
-      cpu    = 0.5
-      memory = "1Gi"
+      name   = "moodle"
+      image  = "${data.azurerm_container_registry.acr.login_server}/moodle:${var.image_tag}"
+      cpu    = 2
+      memory = "4Gi"
 
       env {
         name  = "DB_HOST"
@@ -91,7 +91,7 @@ resource "azurerm_container_app" "moodle_alt" {
       }
       env {
         name  = "MOODLE_URL"
-        value = "https://moodle-app-alt.${var.aca_default_domain}"
+        value = var.moodle_public_url
       }
       env {
         name  = "CODE_CACHE_DIR"
@@ -106,7 +106,7 @@ resource "azurerm_container_app" "moodle_alt" {
         value = <<EOF
 $$CFG->sslproxy = true;
 $$CFG->tracksessionip = false;
-$$CFG->reverseproxy = false;
+$$CFG->reverseproxy = true;
 $$CFG->session_handler_class = '\\core\\session\\database';
 $$CFG->session_database_acquire_lock_timeout = 120;
 EOF
@@ -124,7 +124,7 @@ EOF
       storage_type = "AzureFile"
     }
 
-    min_replicas = 2
-    max_replicas = 2
+    min_replicas = 1
+    max_replicas = 1
   }
 }

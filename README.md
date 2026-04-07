@@ -1,231 +1,119 @@
-# Moodle 5.1 on Azure Container Apps (ACA) – Fast, Stateless Build
+# 🎓 ESMOS Moodle: Enterprise Build for Azure Container Apps
 
-This project provides a **production-ready, ACA-optimized container image** for Moodle 5.1.
+This repository contains a performance-optimized, production-ready container image for Moodle 5.1, specifically engineered for **Azure Container Apps (ACA)** and other serverless container platforms.
 
-It is designed for:
+## 🏗️ Key Design Principles
 
-* ⚡ Fast cold starts (2–5s)
-* 🧊 Scale-to-zero compatibility
-* 🔁 Stateless containers
-* ☁️ Clean separation of compute, storage, and state
+The ESMOS Moodle image adheres to modern cloud-native standards to ensure reliability, scalability, and security in a healthcare environment:
 
----
-
-## 🧠 Architecture Overview
-
-| Component            | Responsibility              |
-| -------------------- | --------------------------- |
-| Moodle Container     | PHP + Nginx (stateless app) |
-| PostgreSQL           | Database                    |
-| Redis                | Sessions + cache            |
-| Azure Files / Volume | `moodledata`                |
-
-**Key principle:**
-
-> The container is disposable. All state lives outside.
+*   **Stateless Execution**: The container is ephemeral. All persistence—including file uploads (`moodledata`), session state, and databases—is handled by external managed services.
+*   **Rapid Cold Start**: Optimized for ACA's scale-to-zero capabilities, achieving cold starts under 5 seconds by avoiding runtime repository clones or heavy configuration steps.
+*   **Pre-Baked Dependencies**: All Moodle core code and required plugins are "baked" into the image during the build stage, ensuring consistency across deployments.
+*   **Auto-Tuning Runtime**: The container includes an intelligent entrypoint that automatically calculates PHP-FPM and Nginx worker thresholds based on the available container memory/CPU.
 
 ---
 
-## 🚀 Features
+## 📐 Architecture
 
-* ✅ Moodle 5.1 baked into the image (no runtime git)
-* ✅ No install/upgrade during container startup
-* ✅ Redis-backed sessions (required for scaling)
-* ✅ OPcache + APCu enabled
-* ✅ Minimal Alpine-based image
-* ✅ Nginx + PHP-FPM (no supervisor)
+```mermaid
+graph TD
+    User([User]) -- "HTTPS (Port 443)" --> LB["GCP Global Load Balancer"]
+    LB -- "Internet NEG" --> ACA["Azure Container Apps (Moodle)"]
+    
+    subgraph Azure_VNet["Azure Virtual Network"]
+        direction TB
+        ACA
+        PG["PostgreSQL Flexible Server"]
+        Redis["Azure Cache for Redis"]
+        Files["Azure Files (SMB Mount)"]
+    end
 
----
-
-## 📦 Project Structure
-
+    ACA -- "db_user" --> PG
+    ACA -- "cache/session" --> Redis
+    ACA -- "/var/www/moodledata" --> Files
 ```
+
+### Component Breakdown
+
+| Component | Technology | Responsibility |
+| :--- | :--- | :--- |
+| **Runtime** | PHP 8.3 + FPM (Alpine) | Core application logic and execution. |
+| **Web Server** | Nginx | High-performance request handling and static asset serving. |
+| **Persistence** | Azure Files (SMB) | Shared storage for `moodledata` across all container replicas. |
+| **State** | Redis (Optional) | Centralized session and application caching for horizontal scaling. |
+| **Database** | PostgreSQL | Managed database for persistent platform state. |
+
+---
+
+## 📂 Project Structure
+
+```text
 .
-├── Dockerfile
-├── docker-compose.yml
-├── nginx.conf
-├── entrypoint.sh
-├── config.php
-└── README.md
+├── terraform/          # Infrastructure-as-Code for Azure App deployment
+├── .github/worklows/   # CI/CD pipelines for building and deploying to ACR
+├── Dockerfile          # Multi-stage production build (Builder + Runtime)
+├── entrypoint.sh       # Dynamic runtime configuration and warming
+├── plugins.json        # Manifest file for baking plugins into the image
+├── supervisord.conf    # Process manager for Nginx and PHP-FPM
+└── docker-compose.yml  # Local development environment
 ```
 
 ---
 
-## 🐳 Local Development (Docker Compose)
+## 🔐 Configuration
 
-### 1. Build and start services
+The image is configured primarily through environment variables.
 
+### Database Settings
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DB_TYPE` | `pgsql` | Database driver (`pgsql`, `mysqli`, `sqlsrv`). |
+| `DB_HOST` | `localhost` | FQDN or IP of the database server. |
+| `DB_NAME` | `moodle` | Target database name. |
+| `DB_USER` | `moodle` | Managed Database username. |
+| `DB_PASS` | — | Database password (Sensitive). |
+
+### Application Settings
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `MOODLE_URL` | — | The public-facing URL (e.g., https://moodle.example.com). |
+| `REDIS_HOST` | — | Hostnames for Redis session/cache handling. |
+| `PUID / PGID` | `33` | User/Group ID for file permission alignment (optional). |
+
+---
+
+## 🚀 Operational Guide
+
+### 1. Local Development
+To spin up a local instance including a database and Redis for testing:
 ```bash
 docker compose up --build
 ```
+The site will be available at `http://localhost:8080`.
 
-### 2. Access Moodle
-
-```
-http://localhost:8080
-```
-
----
-
-## ⚠️ First-Time Setup (Required)
-
-This image does NOT auto-install Moodle (by design).
-
-Run once:
-
+### 2. First-Time Database Initialization
+The image does not perform destructive schema operations automatically. For new installations, execute:
 ```bash
-docker exec -it moodle-app sh
-```
-
-Then:
-
-```bash
-php admin/cli/install_database.php \
-  --lang=en \
+docker exec -it moodle-app php admin/cli/install_database.php \
   --adminuser=admin \
-  --adminpass=Admin123! \
-  --adminemail=admin@example.com \
-  --fullname="Moodle" \
-  --shortname="Moodle" \
-  --agree-license
+  --adminpass=CHANGE_ME_123! \
+  ... [see Moodle CLI docs for full arguments]
 ```
 
----
-
-## 🔧 Environment Variables
-
-### Core
-
-| Variable   | Description            |
-| ---------- | ---------------------- |
-| MOODLE_URL | Public URL of the site |
-
-### Database
-
-| Variable | Description         |
-| -------- | ------------------- |
-| DB_TYPE  | `pgsql` or `mysqli` |
-| DB_HOST  | Database host       |
-| DB_PORT  | Database port       |
-| DB_NAME  | Database name       |
-| DB_USER  | Database user       |
-| DB_PASS  | Database password   |
-
-### Redis
-
-| Variable   | Description    |
-| ---------- | -------------- |
-| REDIS_HOST | Redis hostname |
-
----
-
-## ☁️ Deployment to Azure Container Apps
-
-### Required Services
-
-* Azure Container Apps
-* Azure Database for PostgreSQL (or MySQL)
-* Azure Cache for Redis
-* Azure Files (mounted to `/var/www/moodledata`)
-
----
-
-### Scaling Configuration
-
-```yaml
-minReplicas: 0
-maxReplicas: 10
-```
-
-Use **HTTP scaling**, not CPU-based scaling.
-
----
-
-## 🧊 Scale-to-Zero Design Notes
-
-To support scale-to-zero:
-
-* ❌ No filesystem sessions
-
-* ❌ No runtime installs
-
-* ❌ No mutable container state
-
-* ✅ Redis sessions
-
-* ✅ External DB
-
-* ✅ External storage
-
----
-
-## ⚡ Performance Optimizations
-
-* OPcache enabled with aggressive settings
-* APCu for local caching
-* Reduced image size via Alpine
-* No runtime dependency resolution
-
----
-
-## 🔁 Upgrades
-
-Do NOT upgrade during container startup.
-
-Instead:
-
+### 3. Lifecycle & Upgrades
+Updates to Moodle core or plugins should be handled by modifying the `Dockerfile` or `plugins.json` and triggering a new build. 
+For database schema upgrades after an image update:
 ```bash
-php admin/cli/upgrade.php
-```
-
-Run this via:
-
-* Azure Container Apps Job
-* CI/CD pipeline
-
----
-
-## 🧪 Health Check
-
-Recommended endpoint:
-
-```
-/login/index.php
+# Recommended to run as a one-time ACA Job
+php admin/cli/upgrade.php --non-interactive
 ```
 
 ---
 
-## 🔐 Security Notes
-
-* Do NOT use default credentials in production
-* Restrict database access to private network
-* Use managed identities or secrets manager where possible
-
----
-
-## 🧠 Philosophy
-
-This image follows a strict rule:
-
-> If it slows down cold start, it does not belong in runtime.
+## ⚡ Performance & Optimization
+*   **OpCache**: Enabled with optimized buffers for enterprise-scale workloads.
+*   **APCu**: Integrated for fast local object caching.
+*   **Intelligent Buffering**: Nginx buffers are dynamically optimized for high-latency storage mounts common in cloud environments.
 
 ---
-
-## 🏁 Summary
-
-| Goal          | Status |
-| ------------- | ------ |
-| Fast startup  | ✅      |
-| Scale-to-zero | ✅      |
-| Stateless     | ✅      |
-| ACA-ready     | ✅      |
-
----
-
-## 🙌 Final Note
-
-This is not a “flexible dev container.”
-
-It is a **cloud-native, production-first build** optimized for modern platforms like Azure Container Apps.
-
-Treat it like infrastructure, not a pet server.
+*Maintained by the ESMOS Healthcare Development Team.*

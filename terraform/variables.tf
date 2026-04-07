@@ -41,6 +41,12 @@ variable "aca_default_domain" {
   type        = string
 }
 
+variable "moodle_public_url" {
+  description = "Public-facing URL for Moodle (GCP LB URL). Used as wwwroot so all generated links stay on the LB domain."
+  type        = string
+  default     = "https://moodle.34-49-101-43.sslip.io"
+}
+
 variable "image_tag" {
   description = "Docker image tag to deploy"
   type        = string

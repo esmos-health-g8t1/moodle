@@ -1,5 +1,5 @@
 services:
-  moodle-alt-db:
+  moodle-v2-db:
     image: postgres:18-alpine
     environment:
       POSTGRES_USER: moodle
@@ -15,9 +15,9 @@ services:
       - "8080:8080"
     environment:
       # Isso já deixa o campo 'Servidor' preenchido com o nome do serviço do banco
-      ADMINER_DEFAULT_SERVER: moodle-alt-db
+      ADMINER_DEFAULT_SERVER: moodle-v2-db
     depends_on:
-      - moodle-alt-db
+      - moodle-v2-db
 
   app:
     build:
@@ -31,10 +31,10 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - moodle-alt-db
+      - moodle-v2-db
     environment:
       MOODLE_URL: http://localhost
-      DB_HOST: moodle-alt-db
+      DB_HOST: moodle-v2-db
       DB_TYPE: pgsql
       DB_NAME: moodle
       DB_USER: moodle
@@ -71,7 +71,7 @@ services:
     restart: unless-stopped
     environment:
       PG_META_PORT: 8080
-      PG_META_DB_HOST: moodle-alt-db
+      PG_META_DB_HOST: moodle-v2-db
       PG_META_DB_PORT: 5432
       PG_META_DB_NAME: moodle
       PG_META_DB_USER: moodle
@@ -90,7 +90,7 @@ services:
       HOSTNAME: "::"
       STUDIO_PG_META_URL: http://meta:8080
       POSTGRES_PORT: 5432
-      POSTGRES_HOST: moodle-alt-db
+      POSTGRES_HOST: moodle-v2-db
       POSTGRES_DB: moodle
       POSTGRES_USER: moodle
       POSTGRES_PASSWORD: password
